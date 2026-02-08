@@ -8,7 +8,7 @@ from pathlib import Path
 
 from scheduler.demand import build_demands
 from scheduler.export_excel import export_schedule_excel
-from scheduler.io_excel import EmployeeLoadError, load_employees, load_shifts
+from scheduler.io_excel import load_employees, load_shifts
 from scheduler.solver import solve_schedule
 
 
@@ -62,23 +62,13 @@ def _render_table(rows: list[dict[str, object]]) -> str:
     return _format_table(rows)
 
 
-def _load_employees_or_exit(input_path: Path) -> list[object]:
-    try:
-        return load_employees(input_path)
-    except EmployeeLoadError as exc:
-        print("Bledy w arkuszu 'pracownicy' (pierwsze 5):")
-        for issue in exc.issues[:5]:
-            print(f"- wiersz {issue['row']}, pole {issue['field']}: {issue['message']}")
-        raise SystemExit(1) from exc
-
-
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     input_path = Path(args.input)
     if not input_path.is_file():
         raise SystemExit(f"ERROR: input file not found: {input_path}")
     if args.print_employees:
-        employees = _load_employees_or_exit(input_path)
+        employees = load_employees(input_path)
         rows = [employee.model_dump() for employee in employees]
         print(_render_table(rows))
     if args.print_shifts:
@@ -92,7 +82,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Demands total: {len(rows)}")
         if rows:
             print(_render_table(rows[:20]))
-    employees = _load_employees_or_exit(input_path)
+    employees = load_employees(input_path)
     shifts = load_shifts(input_path)
     demands = build_demands(args.month, shifts)
     solve_result = solve_schedule(employees, demands, shifts)

@@ -3,38 +3,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
-from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-class Group(str, Enum):
-    ELEKTRORADIOLOG = "ELEKTRORADIOLOG"
-    PIELEGNIARKA = "PIELEGNIARKA"
-
-
-def normalize_group(value: Any) -> Group:
-    if isinstance(value, Group):
-        return value
-    if value is None:
-        raise ValueError("Grupa jest wymagana")
-    text = str(value).strip().casefold()
-    mapping = {
-        "elektroradiolog": Group.ELEKTRORADIOLOG,
-        "er": Group.ELEKTRORADIOLOG,
-        "pielęgniarka": Group.PIELEGNIARKA,
-        "pielęgniarki": Group.PIELEGNIARKA,
-        "piel": Group.PIELEGNIARKA,
-    }
-    if text in mapping:
-        return mapping[text]
-    for group in Group:
-        if text == group.value.casefold():
-            return group
-    raise ValueError(f"Nieprawidlowa grupa: {value!r}")
-
-
-GroupName = Group
+GroupName = Literal["ELEKTRORADIOLOG", "PIELEGNIARKA"]
 ContractType = Literal["UOP", "B2B", "ZLECENIE"]
 
 
@@ -102,29 +75,23 @@ class Employee(BaseModel):
     def _validate_bool(cls, value: Any) -> bool:
         return _parse_bool(value)
 
-    @field_validator("grupa", mode="before")
-    @classmethod
-    def _normalize_group(cls, value: Any) -> Group:
-        return normalize_group(value)
-
     @field_validator("skills", mode="before")
     @classmethod
     def _build_skills(cls, value: Any, info: Any) -> set[str]:
-        if isinstance(value, (set, list, tuple)):
-            return set(value)
+        if isinstance(value, set):
+            return value
         data = info.data or {}
         mr = _parse_bool(data.get("MR"))
         tk = _parse_bool(data.get("TK"))
         group = data.get("grupa")
         skills: set[str] = set()
-        if group == Group.ELEKTRORADIOLOG:
-            if mr:
-                skills.add("MR")
-            if tk:
-                skills.add("TK")
-            if mr and tk:
-                skills.add("ALL")
-        if group == Group.PIELEGNIARKA:
+        if mr:
+            skills.add("MR")
+        if tk:
+            skills.add("TK")
+        if mr and tk:
+            skills.add("ALL")
+        if group == "PIELEGNIARKA":
             skills.add("ZDO")
         return skills
 
@@ -144,8 +111,6 @@ class Employee(BaseModel):
     def _validate_contract(self) -> "Employee":
         if self.typ_umowy == "UOP" and self.etat is None:
             raise ValueError("UOP wymaga etatu")
-        if self.grupa == Group.ELEKTRORADIOLOG and not self.skills:
-            raise ValueError("Brak kwalifikacji MR/TK dla ELEKTRORADIOLOG")
         if self.auto_target:
             self.cel_godz_miesiac = None
         return self
