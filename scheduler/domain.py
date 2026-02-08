@@ -112,3 +112,19 @@ class Demand(BaseModel):
     target_staff: int = 1
     required_modalnosc: Optional[str] = None
     grupa: Optional[str] = None
+    
+class Settings(BaseModel):
+    timezone: str = "Europe/Warsaw"
+
+    # Wagi miękkich reguł (na start neutralne, żeby nic nie wywracało)
+    w_max_hours_over: int = 1000
+    w_min_hours_under: int = 500
+    w_target_hours_dev: int = 50
+
+    w_b2b_48h_week_over: int = 300
+    w_balance_nights: int = 30
+    w_balance_weekends: int = 30
+    w_balance_24h: int = 30
+
+    # Tolerancje
+    uop_target_tolerance_hours: float = 8.0
