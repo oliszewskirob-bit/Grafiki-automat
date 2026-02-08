@@ -4,8 +4,23 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from typing import Any, Literal
+from enum import Enum
+from pydantic import field_validator
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+class Group(str, Enum):
+    ELEKTRORADIOLOG = "ELEKTRORADIOLOG"
+    PIELEGNIARKA = "PIELEGNIARKA"
+
+def normalize_group(value: str) -> str:
+    if value is None:
+        return value
+    v = str(value).strip().lower()
+    if v in {"elektroradiolog", "er", "elektroradiolodzy", "rtg er"}:
+        return "ELEKTRORADIOLOG"
+    if v in {"pielęgniarka", "pielegniarka", "piel", "pielegniarki", "zdo"}:
+        return "PIELEGNIARKA"
+    return str(value).strip()
 
 GroupName = Literal["ELEKTRORADIOLOG", "PIELEGNIARKA"]
 ContractType = Literal["UOP", "B2B", "ZLECENIE"]
@@ -42,7 +57,12 @@ class Employee(BaseModel):
     id: str = Field(alias="pracownik_id")
     name: str = Field(alias="imie_nazwisko")
     stanowisko: str
-    grupa: GroupName
+    grupa: Group
+    @field_validator("grupa", mode="before")
+@classmethod
+def _norm_group(cls, v):
+    return normalize_group(v)
+
     typ_umowy: ContractType
     etat: float | None = None
     moze_24h: bool
