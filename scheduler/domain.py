@@ -1,72 +1,52 @@
-"""Domain models mapped from Excel inputs."""
-
 from __future__ import annotations
 
-from datetime import date, datetime, time
-from typing import Any, Literal
+from dataclasses import dataclass
 from enum import Enum
-from pydantic import field_validator
+from datetime import date, time
+from typing import Optional, Set
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
+
+
 class Group(str, Enum):
     ELEKTRORADIOLOG = "ELEKTRORADIOLOG"
     PIELEGNIARKA = "PIELEGNIARKA"
 
-def normalize_group(value: str) -> str:
+
+def normalize_group(value: object) -> str:
     if value is None:
-        return value
+        return ""
     v = str(value).strip().lower()
-    if v in {"elektroradiolog", "er", "elektroradiolodzy", "rtg er"}:
+    if v in {"elektroradiolog", "er", "elektroradiolodzy", "elektroradiologzy"}:
         return "ELEKTRORADIOLOG"
     if v in {"pielęgniarka", "pielegniarka", "piel", "pielegniarki", "zdo"}:
         return "PIELEGNIARKA"
+    # jeśli ktoś wpisał już docelową wartość
+    if v in {"elektroradiolog".lower(), "pielegniarka".lower()}:
+        return v.upper()
     return str(value).strip()
-
-GroupName = Literal["ELEKTRORADIOLOG", "PIELEGNIARKA"]
-ContractType = Literal["UOP", "B2B", "ZLECENIE"]
-
-
-def _parse_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    if isinstance(value, (int, float)):
-        return bool(value)
-    text = str(value).strip().upper()
-    if text in {"TAK", "YES", "TRUE", "1"}:
-        return True
-    if text in {"NIE", "NO", "FALSE", "0", ""}:
-        return False
-    raise ValueError(f"Nieprawidlowa wartosc bool: {value!r}")
-
-
-def _parse_time(value: Any) -> time:
-    if isinstance(value, time):
-        return value
-    if value is None:
-        raise ValueError("Czas nie moze byc pusty")
-    text = str(value).strip()
-    try:
-        return datetime.strptime(text, "%H:%M").time()
-    except ValueError as exc:
-        raise ValueError(f"Nieprawidlowy format czasu (HH:MM): {value!r}") from exc
 
 
 class Employee(BaseModel):
-    pracownik_id: str
-    imie_nazwisko: str
-    stanowisko: str
+    pracownik_id: Optional[str] = None
+    imie_nazwisko: Optional[str] = None
+    stanowisko: Optional[str] = None
+
     grupa: Group
-    typ_umowy: str
-    etat: float | None = None
+    typ_umowy: Optional[str] = None
+    etat: Optional[float] = None
+
     moze_24h: bool = False
-    PN_PT: bool = False
-    skills: set[str] = set()
-    max_godz_tydz: float | None = None
-    cel_godz_miesiac: float | None = None
-    min_godz_miesiac: float | None = None
-    max_godz_miesiac: float | None = None
+    # Excel ma klucz "PN-PT" więc trzymamy alias:
+    PN_PT: bool = Field(default=False, alias="PN-PT")
+
+    skills: Set[str] = Field(default_factory=set)
+
+    max_godz_tydz: Optional[float] = None
+    cel_godz_miesiac: Optional[float] = None
+    min_godz_miesiac: Optional[float] = None
+    max_godz_miesiac: Optional[float] = None
+
     okres_rozliczeniowy_mies: int = 1
 
     @field_validator("grupa", mode="before")
@@ -74,123 +54,61 @@ class Employee(BaseModel):
     def _norm_group(cls, v):
         return normalize_group(v)
 
-
-    typ_umowy: ContractType
-    etat: float | None = None
-    moze_24h: bool
-    pn_pt: bool = Field(alias="PN-PT")
-    skills: set[str]
-    max_godz_tydz: float | None = None
-    cel_godz_miesiac: float | None = None
-    auto_target: bool = False
-    min_godz_miesiac: float | None = None
-    max_godz_miesiac: float | None = None
-    okres_rozliczeniowy_mies: int
-
-    model_config = {
-        "populate_by_name": True,
-        "extra": "ignore",
-    }
-
-    @model_validator(mode="before")
-    @classmethod
-    def _inject_auto_target(cls, values: Any) -> Any:
-        if not isinstance(values, dict):
-            return values
-        raw = values.get("cel_godz_miesiac")
-        if isinstance(raw, str) and raw.strip().upper() == "AUTO":
-            values["auto_target"] = True
-        return values
-
-    @field_validator("moze_24h", "pn_pt", mode="before")
-    @classmethod
-    def _validate_bool(cls, value: Any) -> bool:
-        return _parse_bool(value)
-
     @field_validator("skills", mode="before")
     @classmethod
-    def _build_skills(cls, value: Any, info: Any) -> set[str]:
-        if isinstance(value, set):
-            return value
-        data = info.data or {}
-        mr = _parse_bool(data.get("MR"))
-        tk = _parse_bool(data.get("TK"))
-        group = data.get("grupa")
-        skills: set[str] = set()
-        if mr:
-            skills.add("MR")
-        if tk:
-            skills.add("TK")
-        if mr and tk:
-            skills.add("ALL")
-        if group == "PIELEGNIARKA":
-            skills.add("ZDO")
-        return skills
+    def _skills_to_set(cls, v):
+        if v is None:
+            return set()
+        if isinstance(v, set):
+            return v
+        if isinstance(v, list) or isinstance(v, tuple):
+            return {str(x) for x in v if x is not None and str(x).strip() != ""}
+        if isinstance(v, str):
+            # np. "MR+TK" lub "MR, TK"
+            s = v.replace("+", ",")
+            parts = [p.strip() for p in s.split(",")]
+            return {p for p in parts if p}
+        return set()
 
-    @field_validator("cel_godz_miesiac", mode="before")
+    @field_validator("typ_umowy", mode="before")
     @classmethod
-    def _parse_target(cls, value: Any) -> float | None:
-        if value is None:
+    def _norm_umowa(cls, v):
+        if v is None:
             return None
-        if isinstance(value, (int, float)):
-            return float(value)
-        text = str(value).strip().upper()
-        if text == "AUTO":
-            return None
-        return float(text.replace(",", "."))
-
-    @model_validator(mode="after")
-    def _validate_contract(self) -> "Employee":
-        if self.typ_umowy == "UOP" and self.etat is None:
-            raise ValueError("UOP wymaga etatu")
-        if self.auto_target:
-            self.cel_godz_miesiac = None
-        return self
+        s = str(v).strip().upper()
+        # dopuszczamy warianty
+        if s in {"UOP", "UMOWA O PRACE", "UMOWAOPRACE"}:
+            return "UOP"
+        if s in {"B2B", "KONTRAKT"}:
+            return "B2B"
+        if s in {"ZLECENIE", "UMOWA ZLECENIE", "UZ"}:
+            return "ZLECENIE"
+        return s
 
 
 class ShiftType(BaseModel):
     code: str = Field(alias="shift_code")
-    grupa: GroupName
-    modalnosc: str
-    start_time: time = Field(alias="start")
-    end_time: time = Field(alias="koniec")
-    duration_h: float = Field(alias="czas_h")
-    is_24h: bool = Field(alias="czy_24h")
+    grupa: Optional[str] = None
+    modalnosc: Optional[str] = None
 
-    model_config = {
-        "populate_by_name": True,
-        "extra": "ignore",
-    }
+    start: Optional[str] = None
+    koniec: Optional[str] = None
+    czas_h: Optional[float] = None
+    czy_24h: bool = False
 
-    @field_validator("start_time", "end_time", mode="before")
+    @field_validator("czy_24h", mode="before")
     @classmethod
-    def _parse_time_fields(cls, value: Any) -> time:
-        return _parse_time(value)
-
-    @field_validator("is_24h", mode="before")
-    @classmethod
-    def _parse_is_24h(cls, value: Any) -> bool:
-        return _parse_bool(value)
+    def _to_bool(cls, v):
+        if v is None:
+            return False
+        s = str(v).strip().lower()
+        return s in {"tak", "t", "true", "1", "x", "yes", "y"}
 
 
 class Demand(BaseModel):
     date: date
     shift_code: str
-    min_staff: int
-    target_staff: int
-    required_modalnosc: str
-    grupa: GroupName
-
-
-class Settings(BaseModel):
-    timezone: str = "Europe/Warsaw"
-    wagi_miekkie: dict[str, float] = Field(
-        default_factory=lambda: {
-            "max_hours": 1000.0,
-            "min_hours": 500.0,
-            "target_hours": 100.0,
-            "weekly_48h": 500.0,
-            "balance": 50.0,
-        }
-    )
-    tolerancje: dict[str, float] = Field(default_factory=dict)
+    min_staff: int = 1
+    target_staff: int = 1
+    required_modalnosc: Optional[str] = None
+    grupa: Optional[str] = None
