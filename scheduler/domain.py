@@ -54,14 +54,26 @@ def _parse_time(value: Any) -> time:
 
 
 class Employee(BaseModel):
-    id: str = Field(alias="pracownik_id")
-    name: str = Field(alias="imie_nazwisko")
+    pracownik_id: str
+    imie_nazwisko: str
     stanowisko: str
     grupa: Group
+    typ_umowy: str
+    etat: float | None = None
+    moze_24h: bool = False
+    PN_PT: bool = False
+    skills: set[str] = set()
+    max_godz_tydz: float | None = None
+    cel_godz_miesiac: float | None = None
+    min_godz_miesiac: float | None = None
+    max_godz_miesiac: float | None = None
+    okres_rozliczeniowy_mies: int = 1
+
     @field_validator("grupa", mode="before")
-@classmethod
-def _norm_group(cls, v):
-    return normalize_group(v)
+    @classmethod
+    def _norm_group(cls, v):
+        return normalize_group(v)
+
 
     typ_umowy: ContractType
     etat: float | None = None
